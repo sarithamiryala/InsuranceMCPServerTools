@@ -1,4 +1,3 @@
-# app_mcp_server1.py
 
 from fastapi import FastAPI
 from fastmcp import FastMCP
