@@ -1,5 +1,6 @@
 from backend.services.llm_client import llm_response
 from backend.utils.safe_json import safe_json_parse
+import os
 
 def _sanitize_result(data: dict) -> dict:
     out = {}
@@ -17,6 +18,7 @@ def _sanitize_result(data: dict) -> dict:
     return out
 
 def fraud_agent(state):
+    # Prepare prompt
     prompt = f"""
     You are an insurance fraud detection AI.
 
@@ -28,11 +30,22 @@ def fraud_agent(state):
     - "fraud_decision": "SAFE" or "SUSPECT"
     """
 
-    result = llm_response(prompt)
-    print("Raw LLM response (fraud_agent):", repr(result))
+    # Fallback if API key is missing
+    if not os.getenv("GOOGLE_API_KEY"):
+        print("[fraud_agent] WARNING: GOOGLE_API_KEY not set. Using fallback fraud score.")
+        raw_result = '{"fraud_score": 0.0, "fraud_decision": "SAFE"}'
+    else:
+        try:
+            raw_result = llm_response(prompt)
+        except Exception as e:
+            print(f"[fraud_agent] ERROR calling LLM: {e}")
+            raw_result = '{"fraud_score": 0.0, "fraud_decision": "SAFE"}'
 
+    print("Raw LLM response (fraud_agent):", repr(raw_result))
+
+    # Parse and sanitize
     fallback = {"fraud_score": 0.0, "fraud_decision": "SAFE"}
-    parsed = safe_json_parse(result, fallback)
+    parsed = safe_json_parse(raw_result, fallback)
     cleaned = _sanitize_result(parsed)
 
     # Update claim state
