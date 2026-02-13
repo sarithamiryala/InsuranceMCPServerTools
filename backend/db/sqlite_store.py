@@ -1,4 +1,6 @@
-import os, sqlite3
+import os
+import sqlite3
+import shutil
 from contextlib import contextmanager
 
 # -----------------------------
@@ -7,18 +9,35 @@ from contextlib import contextmanager
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 PROJECT_ROOT = os.path.abspath(os.path.join(BASE_DIR, "..", ".."))
 
-DB_PATH = os.getenv(
-    "CLAIMS_DB_PATH",
-    os.path.join(PROJECT_ROOT, "data", "claims.db")
-)
+# Default DB path in repo
+REPO_DB_PATH = os.path.join(PROJECT_ROOT, "data", "claims.db")
 
-os.makedirs(os.path.dirname(DB_PATH), exist_ok=True)
+# Render / env override
+DB_PATH = os.getenv("CLAIMS_DB_PATH", REPO_DB_PATH)
+
+# Ensure folder exists for repo path
+os.makedirs(os.path.dirname(REPO_DB_PATH), exist_ok=True)
+
+# -----------------------------
+# Handle read-only DB (Render-safe)
+# -----------------------------
+if os.path.exists(DB_PATH) and not os.access(DB_PATH, os.W_OK):
+    # Copy to writable temp folder
+    tmp_db_path = "/tmp/claims.db"
+    if not os.path.exists(tmp_db_path):
+        shutil.copy(DB_PATH, tmp_db_path)
+    DB_PATH = tmp_db_path
+    print(f"[DB] Using temporary writable DB: {DB_PATH}")
+
+else:
+    # If DB doesn't exist, create parent folder
+    os.makedirs(os.path.dirname(DB_PATH), exist_ok=True)
+    print(f"[DB] Using DB path: {DB_PATH}")
 
 
 # ============================================================
 # CONNECTION
 # ============================================================
-
 def _connect():
     conn = sqlite3.connect(DB_PATH, check_same_thread=False)
     conn.row_factory = sqlite3.Row
@@ -42,7 +61,6 @@ def db_conn():
 # ============================================================
 # TABLE COLUMN HELPERS
 # ============================================================
-
 def _table_columns(conn, table: str) -> set[str]:
     cols = set()
     for row in conn.execute(f"PRAGMA table_info({table});").fetchall():
@@ -73,8 +91,7 @@ def _ensure_claims_extra_columns(conn):
     if "manager_comment" not in cols:
         add.append("ALTER TABLE claims ADD COLUMN manager_comment TEXT;")
 
-    # ✅ NEW INVESTIGATOR ASSIGNMENT COLUMNS
-
+    # Investigator assignment columns
     if "investigator_id" not in cols:
         add.append("ALTER TABLE claims ADD COLUMN investigator_id TEXT;")
 
@@ -94,9 +111,8 @@ def _ensure_claims_extra_columns(conn):
 # ============================================================
 # INIT DATABASE
 # ============================================================
-
 def init_db():
-    print(f"[DB] Using: {DB_PATH}")
+    print(f"[DB] Initializing database: {DB_PATH}")
 
     with db_conn() as conn:
         conn.executescript("""
@@ -133,7 +149,6 @@ def init_db():
 # ============================================================
 # CLAIM OPERATIONS
 # ============================================================
-
 def upsert_claim_registration(**kwargs):
     with db_conn() as conn:
         conn.execute("""
